@@ -30,6 +30,7 @@ import java.util.Set;
 public final class Cluster {
 
     private final boolean isBootstrapConfigured;
+    // NOTE: 2016/12/3 tiny - list of nodes unmodified
     private final List<Node> nodes;
     private final Set<String> unauthorizedTopics;
     private final Set<String> internalTopics;
@@ -142,6 +143,7 @@ public final class Cluster {
      * @return A cluster for these hosts/ports
      */
     public static Cluster bootstrap(List<InetSocketAddress> addresses) {
+        // NOTE: 2016/12/3 tiny - addresses is configured by bootstrap.servers
         List<Node> nodes = new ArrayList<>();
         int nodeId = -1;
         for (InetSocketAddress address : addresses)

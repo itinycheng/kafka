@@ -12,9 +12,6 @@
  */
 package org.apache.kafka.clients.producer.internals;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -23,6 +20,9 @@ import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.Record;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A batch of records that is or will be sent.
@@ -43,6 +43,7 @@ public final class RecordBatch {
     public final TopicPartition topicPartition;
     public final ProduceRequestResult produceFuture;
     public long lastAppendTime;
+    // NOTE: 2016/12/3 tiny - 消息append后，获得future、callback回调，new Thunk(callback, future);
     private final List<Thunk> thunks;
     private long offsetCounter = 0L;
     private boolean retry;

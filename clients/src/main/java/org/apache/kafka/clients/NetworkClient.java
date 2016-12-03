@@ -514,6 +514,7 @@ public class NetworkClient implements KafkaClient {
      * Initiate a connection to the given node
      */
     private void initiateConnect(Node node, long now) {
+        // NOTE: 2016/12/3 tiny - [currentMethod] 未调用finishConnect完成connect
         String nodeConnectionId = node.idString();
         try {
             log.debug("Initiating connection to node {} at {}:{}.", node.id(), node.host(), node.port());

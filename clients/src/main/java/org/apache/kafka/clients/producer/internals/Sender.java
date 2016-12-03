@@ -167,6 +167,8 @@ public class Sender implements Runnable {
     void run(long now) {
         Cluster cluster = metadata.fetch();
         // get the list of partitions with data ready to send
+        // NOTE: 2016/12/3 tiny - new ReadyCheckResult(readyNodes, nextReadyCheckDelayMs, unknownLeaderTopics)
+        // NOTE: 2016/12/3 tiny - use Deque, etc. to confirm weather node is ready
         RecordAccumulator.ReadyCheckResult result = this.accumulator.ready(cluster, now);
 
         // if there are any partitions whose leaders are not known yet, force metadata update
@@ -184,6 +186,9 @@ public class Sender implements Runnable {
         long notReadyTimeout = Long.MAX_VALUE;
         while (iter.hasNext()) {
             Node node = iter.next();
+            // NOTE: 2016/12/3 tiny - connecting to the given node
+            // NOTE: 2016/12/3 tiny - 也就是说在某个leader of partition的数据准备好时，再进行connect request
+            // NOTE: 2016/12/3 tiny - 第一次只进行无阻塞的connect操作，batch数据等到下次调用run(ms)到此时再判断ready，并继续后边步骤
             if (!this.client.ready(node, now)) {
                 iter.remove();
                 notReadyTimeout = Math.min(notReadyTimeout, this.client.connectionDelay(node, now));
@@ -204,6 +209,8 @@ public class Sender implements Runnable {
         }
 
         List<RecordBatch> expiredBatches = this.accumulator.abortExpiredBatches(this.requestTimeout, now);
+
+        // NOTE: 2016/12/3 tiny - Metrics
         // update sensors
         for (RecordBatch expiredBatch : expiredBatches)
             this.sensors.recordErrors(expiredBatch.topicPartition.topic(), expiredBatch.recordCount);
@@ -219,6 +226,7 @@ public class Sender implements Runnable {
             log.trace("Nodes with data ready to send: {}", result.readyNodes);
             pollTimeout = 0;
         }
+        // NOTE: 2016/12/3 tiny - continue
         sendProduceRequests(batches, now);
 
         // if some partitions are already ready to be sent, the select time would be 0;
