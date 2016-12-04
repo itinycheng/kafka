@@ -22,6 +22,7 @@ import java.util.Arrays;
  */
 public class Struct {
     private final Schema schema;
+    // NOTE: 2016/12/4 tiny - values contains MemoryRecords and MemoryRecords's schema is 'record_set'
     private final Object[] values;
 
     Struct(Schema schema, Object[] values) {

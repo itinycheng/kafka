@@ -18,15 +18,13 @@
 package org.apache.kafka.common.network;
 
 
-import java.io.IOException;
+import org.apache.kafka.common.utils.Utils;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.nio.channels.SelectionKey;
-
 import java.security.Principal;
-
-import org.apache.kafka.common.utils.Utils;
 
 public class KafkaChannel {
     private final String id;
@@ -170,6 +168,7 @@ public class KafkaChannel {
     }
 
     private boolean send(Send send) throws IOException {
+        // NOTE: 2016/12/4 tiny - send data & remove WRITE Interest
         send.writeTo(transportLayer);
         if (send.completed())
             transportLayer.removeInterestOps(SelectionKey.OP_WRITE);

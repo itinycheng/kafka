@@ -151,6 +151,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     private final Serializer<V> valueSerializer;
     private final ProducerConfig producerConfig;
     private final long maxBlockTimeMs;
+    // NOTE: 2016/12/4 tiny - 'request.timeout.ms' default:30s
     private final int requestTimeoutMs;
     private final ProducerInterceptors<K, V> interceptors;
 

@@ -17,6 +17,7 @@ import org.apache.kafka.common.protocol.types.Struct;
 import java.nio.ByteBuffer;
 
 public abstract class AbstractRequestResponse {
+    // NOTE: 2016/12/4 tiny - 待发送数据的封装类，topic_data -> data -> record_set
     protected final Struct struct;
 
     public AbstractRequestResponse(Struct struct) {

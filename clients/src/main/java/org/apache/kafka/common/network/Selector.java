@@ -12,30 +12,10 @@
  */
 package org.apache.kafka.common.network;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.nio.channels.CancelledKeyException;
-import java.nio.channels.ClosedChannelException;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.SocketChannel;
-import java.nio.channels.UnresolvedAddressException;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.metrics.Measurable;
 import org.apache.kafka.common.metrics.MetricConfig;
-import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.metrics.stats.Avg;
@@ -45,6 +25,13 @@ import org.apache.kafka.common.metrics.stats.Rate;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.nio.channels.*;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A nioSelector interface for doing non-blocking multi-connection network I/O.
@@ -300,6 +287,7 @@ public class Selector implements Selectable {
         this.sensors.selectTime.record(endSelect - startSelect, time.milliseconds());
 
         if (readyKeys > 0 || !immediatelyConnectedKeys.isEmpty()) {
+            // NOTE: 2016/12/4 tiny - send Data & remove WRITE Interest
             pollSelectionKeys(this.nioSelector.selectedKeys(), false, endSelect);
             pollSelectionKeys(immediatelyConnectedKeys, true, endSelect);
         }
@@ -309,6 +297,7 @@ public class Selector implements Selectable {
         long endIo = time.nanoseconds();
         this.sensors.ioTime.record(endIo - endSelect, time.milliseconds());
 
+        // NOTE: 2016/12/4 tiny - close connection if lru[connection]'s time + idle time < endSelect time
         // we use the time at the end of select to ensure that we don't close any connections that
         // have just been processed in pollSelectionKeys
         maybeCloseOldestConnection(endSelect);
@@ -358,6 +347,7 @@ public class Selector implements Selectable {
 
                 /* if channel is ready write to any sockets that have space in their buffer and for which we have data */
                 if (channel.ready() && key.isWritable()) {
+                    // NOTE: 2016/12/4 tiny - nio send Data
                     Send send = channel.write();
                     if (send != null) {
                         this.completedSends.add(send);
@@ -804,6 +794,7 @@ public class Selector implements Selectable {
     // helper class for tracking least recently used connections to enable idle connection closing
     private static class IdleExpiryManager {
         private final Map<String, Long> lruConnections;
+        // NOTE: 2016/12/4 tiny - connections.max.idle.ms, default:540000
         private final long connectionsMaxIdleNanos;
         private long nextIdleCloseCheckTime;
 

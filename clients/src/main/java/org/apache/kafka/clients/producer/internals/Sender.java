@@ -195,12 +195,15 @@ public class Sender implements Runnable {
             }
         }
 
+        // NOTE: 2016/12/4 tiny - batches: Map<node.id(), List<RecordBatch>>
         // create produce requests
         Map<Integer, List<RecordBatch>> batches = this.accumulator.drain(cluster,
                                                                          result.readyNodes,
                                                                          this.maxRequestSize,
                                                                          now);
         if (guaranteeMessageOrder) {
+            // NOTE: 2016/12/4 tiny - 保证消息发送顺序，粒度: batch; send[batch] -> response[success] -> send[next batch]；
+            // NOTE: 2016/12/4 tiny - 存在于muted[list]中的partitions肯定是not ready nodes
             // Mute all the partitions drained
             for (List<RecordBatch> batchList : batches.values()) {
                 for (RecordBatch batch : batchList)
@@ -226,7 +229,7 @@ public class Sender implements Runnable {
             log.trace("Nodes with data ready to send: {}", result.readyNodes);
             pollTimeout = 0;
         }
-        // NOTE: 2016/12/3 tiny - continue
+        // NOTE: 2016/12/3 tiny - send对象的封装，并添加 nio WRITE Interest
         sendProduceRequests(batches, now);
 
         // if some partitions are already ready to be sent, the select time would be 0;
@@ -349,6 +352,7 @@ public class Sender implements Runnable {
      * Create a produce request from the given record batches
      */
     private void sendProduceRequest(long now, int destination, short acks, int timeout, List<RecordBatch> batches) {
+        // NOTE: 2016/12/4 tiny - 封装 Request & send Request
         Map<TopicPartition, MemoryRecords> produceRecordsByPartition = new HashMap<>(batches.size());
         final Map<TopicPartition, RecordBatch> recordsByPartition = new HashMap<>(batches.size());
         for (RecordBatch batch : batches) {
@@ -357,6 +361,7 @@ public class Sender implements Runnable {
             recordsByPartition.put(tp, batch);
         }
 
+        // NOTE: 2016/12/4 tiny - put MemoryRecords to Struct
         ProduceRequest produceRequest = new ProduceRequest(acks, timeout, produceRecordsByPartition);
         RequestHeader header = this.client.nextRequestHeader(ApiKeys.PRODUCE);
         RequestCompletionHandler callback = new RequestCompletionHandler() {
@@ -367,7 +372,7 @@ public class Sender implements Runnable {
 
         String nodeId = Integer.toString(destination);
         ClientRequest clientRequest = new ClientRequest(nodeId, now, acks != 0, header, produceRequest, callback);
-
+        // NOTE: 2016/12/4 tiny - 消息copy到Send，最终放置Send到KafkaChannel，并且transportLayer.addInterestOps(SelectionKey.OP_WRITE);
         client.send(clientRequest, now);
         log.trace("Sent produce request to {}: {}", nodeId, produceRequest);
     }

@@ -250,6 +250,7 @@ public class NetworkClient implements KafkaClient {
         if (!canSendRequest(nodeId))
             throw new IllegalStateException("Attempt to send a request to node " + nodeId + " which is not ready.");
 
+        // NOTE: 2016/12/4 tiny - 消息数据copy到新的 ByteBuffer[] 并封装成NetworkSend返回
         Send send = request.body().toSend(nodeId, request.header());
         InFlightRequest inFlightRequest = new InFlightRequest(
                 request.header(),
@@ -278,6 +279,7 @@ public class NetworkClient implements KafkaClient {
     public List<ClientResponse> poll(long timeout, long now) {
         long metadataTimeout = metadataUpdater.maybeUpdate(now);
         try {
+            // NOTE: 2016/12/4 tiny - nio send data, etc.
             this.selector.poll(Utils.min(timeout, metadataTimeout, requestTimeoutMs));
         } catch (IOException e) {
             log.error("Unexpected error during I/O", e);

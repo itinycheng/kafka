@@ -49,6 +49,7 @@ public class Schema extends Type {
         Struct r = (Struct) o;
         for (Field field : fields) {
             try {
+                // NOTE: 2016/12/4 tiny - fields contians 'record_set' and his value is obj[MemoryRecords], type is RECORDS
                 Object value = field.type().validate(r.get(field));
                 field.type.write(buffer, value);
             } catch (Exception e) {

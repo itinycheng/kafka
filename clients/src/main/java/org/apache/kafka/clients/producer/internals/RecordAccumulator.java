@@ -185,6 +185,7 @@ public final class RecordAccumulator {
                 MemoryRecords records = MemoryRecords.emptyRecords(buffer, compression, this.batchSize);
                 RecordBatch batch = new RecordBatch(tp, records, time.milliseconds());
                 // NOTE: 2016/12/3 tiny - message最终被append到对应的OutputStream; eg: ByteBufferOutputStream, GZIPOutputStream, SnappyOutputStream
+                // NOTE: 2016/12/4 tiny - OutputStream封装ByteBuffer的目的是为了让数据append的操作更为简便
                 FutureRecordMetadata future = Utils.notNull(batch.tryAppend(timestamp, key, value, callback, time.milliseconds()));
 
                 dq.addLast(batch);
@@ -235,7 +236,9 @@ public final class RecordAccumulator {
                         RecordBatch batch = batchIterator.next();
                         boolean isFull = batch != lastBatch || batch.records.isFull();
                         // check if the batch is expired
+                        // NOTE: 2016/12/4 tiny - 按照各种时间测算batch是否过期
                         if (batch.maybeExpire(requestTimeout, retryBackoffMs, now, this.lingerMs, isFull)) {
+                            // NOTE: 2016/12/4 tiny - 移除过期batch，释放空间
                             expiredBatches.add(batch);
                             count++;
                             batchIterator.remove();
