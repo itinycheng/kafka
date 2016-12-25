@@ -20,6 +20,7 @@ import java.util.Map;
  * 
  */
 final class ClusterConnectionStates {
+    // NOTE: 2016/12/25 tiny - config.key is 'reconnect.backoff.ms'
     private final long reconnectBackoffMs;
     private final Map<String, NodeConnectionState> nodeState;
 

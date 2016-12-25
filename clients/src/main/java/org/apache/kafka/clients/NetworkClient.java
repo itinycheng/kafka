@@ -52,6 +52,7 @@ public class NetworkClient implements KafkaClient {
     /* the selector used to perform network i/o */
     private final Selectable selector;
 
+    // NOTE: 2016/12/25 tiny - default: DefaultMetadataUpdater
     private final MetadataUpdater metadataUpdater;
 
     private final Random randOffset;

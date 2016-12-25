@@ -25,6 +25,7 @@ import java.util.Map;
  */
 final class InFlightRequests {
 
+    // NOTE: 2016/12/25 tiny - default: 100
     private final int maxInFlightRequestsPerConnection;
     private final Map<String, Deque<NetworkClient.InFlightRequest>> requests = new HashMap<>();
 

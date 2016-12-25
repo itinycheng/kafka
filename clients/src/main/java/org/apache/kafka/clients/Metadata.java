@@ -49,8 +49,9 @@ public final class Metadata {
 
     public static final long TOPIC_EXPIRY_MS = 5 * 60 * 1000;
     private static final long TOPIC_EXPIRY_NEEDS_UPDATE = -1L;
-
+    // NOTE: 2016/12/25 tiny - config key is 'retry.backoff.ms'
     private final long refreshBackoffMs;
+    // NOTE: 2016/12/25 tiny - config.key is 'metadata.max.age.ms'
     private final long metadataExpireMs;
     private int version;
     private long lastRefreshMs;
@@ -60,8 +61,11 @@ public final class Metadata {
     /* Topics with expiry time */
     private final Map<String, Long> topics;
     private final List<Listener> listeners;
+    // NOTE: 2016/12/25 tiny - callback when Metadata.update(..)
     private final ClusterResourceListeners clusterResourceListeners;
+    // NOTE: 2016/12/25 tiny - default:false
     private boolean needMetadataForAllTopics;
+    // NOTE: 2016/12/25 tiny - topicExpiryEnabled default:false
     private final boolean topicExpiryEnabled;
 
     /**
@@ -90,6 +94,7 @@ public final class Metadata {
         this.lastRefreshMs = 0L;
         this.lastSuccessfulRefreshMs = 0L;
         this.version = 0;
+        // NOTE: 2016/12/25 tiny - create an empty Cluster
         this.cluster = Cluster.empty();
         this.needUpdate = false;
         this.topics = new HashMap<>();
@@ -205,6 +210,7 @@ public final class Metadata {
         this.version += 1;
 
         if (topicExpiryEnabled) {
+            // NOTE: 2016/12/25 tiny - remove unused topics
             // Handle expiry of topics from the metadata refresh set.
             for (Iterator<Map.Entry<String, Long>> it = topics.entrySet().iterator(); it.hasNext(); ) {
                 Map.Entry<String, Long> entry = it.next();
@@ -217,7 +223,7 @@ public final class Metadata {
                 }
             }
         }
-
+        // NOTE: 2016/12/25 tiny - see ConsumerCoordinator
         for (Listener listener: listeners)
             listener.onMetadataUpdate(cluster);
 

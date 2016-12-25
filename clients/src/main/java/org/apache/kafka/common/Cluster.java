@@ -28,7 +28,7 @@ import java.util.Set;
  * A representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
  */
 public final class Cluster {
-
+    // NOTE: 2016/12/25 tiny - default:true, initialize at Cluster.bootstrap
     private final boolean isBootstrapConfigured;
     // NOTE: 2016/12/3 tiny - list of nodes unmodified
     private final List<Node> nodes;
@@ -68,12 +68,12 @@ public final class Cluster {
         this(clusterId, false, nodes, partitions, unauthorizedTopics, internalTopics);
     }
 
-    private Cluster(String clusterId,
+    private Cluster(String clusterId,   // NOTE: 2016/12/25 tiny - null, from Cluster.bootstrap
                     boolean isBootstrapConfigured,
-                    Collection<Node> nodes,
-                    Collection<PartitionInfo> partitions,
-                    Set<String> unauthorizedTopics,
-                    Set<String> internalTopics) {
+                    Collection<Node> nodes, // NOTE: 2016/12/25 tiny - nodes from configuration[bootstrap.servers]
+                    Collection<PartitionInfo> partitions,   // empty , from Cluster.bootstrap
+                    Set<String> unauthorizedTopics, // NOTE: 2016/12/25 tiny - empty, from Cluster.bootstrap
+                    Set<String> internalTopics) {   // NOTE: 2016/12/25 tiny - empty, from Cluster.bootstrap
         this.isBootstrapConfigured = isBootstrapConfigured;
         this.clusterResource = new ClusterResource(clusterId);
         // make a randomized, unmodifiable copy of the nodes
