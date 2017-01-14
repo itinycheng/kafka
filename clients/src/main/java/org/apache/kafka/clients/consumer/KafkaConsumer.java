@@ -802,7 +802,9 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                         throw new IllegalArgumentException("Topic collection to subscribe to cannot contain null or empty topic");
                 }
                 log.debug("Subscribed to topic(s): {}", Utils.join(topics, ", "));
+                // NOTE: 2017/1/14 tiny - add topics & listener to subscription set
                 this.subscriptions.subscribe(new HashSet<>(topics), listener);
+                // NOTE: 2017/1/14 tiny - add new topics subscription set to metadata
                 metadata.setTopics(subscriptions.groupSubscription());
             }
         } finally {
@@ -972,6 +974,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             long start = time.milliseconds();
             long remaining = timeout;
             do {
+                // NOTE: 2017/1/14 tiny - poll data
                 Map<TopicPartition, List<ConsumerRecord<K, V>>> records = pollOnce(remaining);
                 if (!records.isEmpty()) {
                     // before returning the fetched records, we can send off the next round of fetches
@@ -995,6 +998,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
             return ConsumerRecords.empty();
         } finally {
+            // NOTE: 2017/1/14 tiny - AtomicInteger light lock
             release();
         }
     }
@@ -1006,6 +1010,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * @return The fetched records (may be empty)
      */
     private Map<TopicPartition, List<ConsumerRecord<K, V>>> pollOnce(long timeout) {
+        // NOTE: 2017/1/14 tiny - coordinator ready, heart beat, refresh metadata
         coordinator.poll(time.milliseconds());
 
         // fetch positions if we have partitions we're subscribed to that we
@@ -1065,6 +1070,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      */
     @Override
     public void commitSync() {
+        // NOTE: 2017/1/14 tiny - acquire & release 组合使用构成了简单的轻量锁
         acquire();
         try {
             commitSync(subscriptions.allConsumed());
