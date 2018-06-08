@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -14,76 +14,42 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.kafka.streams.processor.internals;
 
-import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.streams.StreamsConfig;
-import org.apache.kafka.streams.StreamsMetrics;
-import org.apache.kafka.streams.errors.TopologyBuilderException;
-import org.apache.kafka.streams.processor.StateRestoreCallback;
+import org.apache.kafka.streams.errors.StreamsException;
+import org.apache.kafka.streams.processor.Cancellable;
+import org.apache.kafka.streams.processor.PunctuationType;
+import org.apache.kafka.streams.processor.Punctuator;
 import org.apache.kafka.streams.processor.StateStore;
 import org.apache.kafka.streams.processor.TaskId;
+import org.apache.kafka.streams.processor.To;
+import org.apache.kafka.streams.processor.internals.metrics.StreamsMetricsImpl;
 import org.apache.kafka.streams.state.internals.ThreadCache;
 
-import java.io.File;
 import java.util.List;
-import java.util.Map;
 
-public class ProcessorContextImpl implements InternalProcessorContext, RecordCollector.Supplier {
+public class ProcessorContextImpl extends AbstractProcessorContext implements RecordCollector.Supplier {
 
-    public static final String NONEXIST_TOPIC = "__null_topic__";
-
-    private final TaskId id;
     private final StreamTask task;
-    private final StreamsMetrics metrics;
     private final RecordCollector collector;
-    private final ProcessorStateManager stateMgr;
+    private final ToInternal toInternal = new ToInternal();
+    private final static To SEND_TO_ALL = To.all();
 
-    private final StreamsConfig config;
-    private final Serde<?> keySerde;
-    private final Serde<?> valSerde;
-    private final ThreadCache cache;
-    private boolean initialized;
-    private RecordContext recordContext;
-    private ProcessorNode currentNode;
-
-    public ProcessorContextImpl(TaskId id,
-                                StreamTask task,
-                                StreamsConfig config,
-                                RecordCollector collector,
-                                ProcessorStateManager stateMgr,
-                                StreamsMetrics metrics,
-                                final ThreadCache cache) {
-        this.id = id;
+    ProcessorContextImpl(final TaskId id,
+                         final StreamTask task,
+                         final StreamsConfig config,
+                         final RecordCollector collector,
+                         final ProcessorStateManager stateMgr,
+                         final StreamsMetricsImpl metrics,
+                         final ThreadCache cache) {
+        super(id, config, metrics, stateMgr, cache);
         this.task = task;
-        this.metrics = metrics;
         this.collector = collector;
-        this.stateMgr = stateMgr;
-
-        this.config = config;
-        this.keySerde = config.keySerde();
-        this.valSerde = config.valueSerde();
-        this.cache = cache;
-        this.initialized = false;
-    }
-
-    public void initialized() {
-        this.initialized = true;
     }
 
     public ProcessorStateManager getStateMgr() {
-        return stateMgr;
-    }
-
-    @Override
-    public TaskId taskId() {
-        return id;
-    }
-
-    @Override
-    public String applicationId() {
-        return task.applicationId();
+        return (ProcessorStateManager) stateManager;
     }
 
     @Override
@@ -91,145 +57,89 @@ public class ProcessorContextImpl implements InternalProcessorContext, RecordCol
         return this.collector;
     }
 
-    @Override
-    public Serde<?> keySerde() {
-        return this.keySerde;
-    }
-
-    @Override
-    public Serde<?> valueSerde() {
-        return this.valSerde;
-    }
-
-    @Override
-    public File stateDir() {
-        return stateMgr.baseDir();
-    }
-
-    @Override
-    public StreamsMetrics metrics() {
-        return metrics;
-    }
-
     /**
-     * @throws IllegalStateException if this method is called before {@link #initialized()}
+     * @throws StreamsException if an attempt is made to access this state store from an unknown node
      */
     @Override
-    public void register(StateStore store, boolean loggingEnabled, StateRestoreCallback stateRestoreCallback) {
-        if (initialized)
-            throw new IllegalStateException("Can only create state stores during initialization.");
-
-        stateMgr.register(store, loggingEnabled, stateRestoreCallback);
-    }
-
-    /**
-     * @throws TopologyBuilderException if an attempt is made to access this state store from an unknown node
-     */
-    @Override
-    public StateStore getStateStore(String name) {
-        if (currentNode == null)
-            throw new TopologyBuilderException("Accessing from an unknown node");
-
-        if (!currentNode.stateStores.contains(name)) {
-            throw new TopologyBuilderException("Processor " + currentNode.name() + " has no access to StateStore " + name);
+    public StateStore getStateStore(final String name) {
+        if (currentNode() == null) {
+            throw new StreamsException("Accessing from an unknown node");
         }
 
-        return stateMgr.getStore(name);
+        final StateStore global = stateManager.getGlobalStore(name);
+        if (global != null) {
+            return global;
+        }
+
+        if (!currentNode().stateStores.contains(name)) {
+            throw new StreamsException("Processor " + currentNode().name() + " has no access to StateStore " + name +
+                    " as the store is not connected to the processor. If you add stores manually via '.addStateStore()' " +
+                    "make sure to connect the added store to the processor by providing the processor name to " +
+                    "'.addStateStore()' or connect them via '.connectProcessorAndStateStores()'. " +
+                    "DSL users need to provide the store name to '.process()', '.transform()', or '.transformValues()' " +
+                    "to connect the store to the corresponding operator. If you do not add stores manually, " +
+                    "please file a bug report at https://issues.apache.org/jira/projects/KAFKA.");
+        }
+
+        return stateManager.getStore(name);
     }
 
+    @SuppressWarnings("unchecked")
     @Override
-    public ThreadCache getCache() {
-        return cache;
+    public <K, V> void forward(final K key, final V value) {
+        forward(key, value, SEND_TO_ALL);
     }
 
-    /**
-     * @throws IllegalStateException if the task's record is null
-     */
+    @SuppressWarnings({"unchecked", "deprecation"})
     @Override
-    public String topic() {
-        if (recordContext == null)
-            throw new IllegalStateException("This should not happen as topic() should only be called while a record is processed");
-
-        String topic = recordContext.topic();
-
-        if (topic.equals(NONEXIST_TOPIC))
-            return null;
-        else
-            return topic;
+    public <K, V> void forward(final K key, final V value, final int childIndex) {
+        forward(key, value, To.child(((List<ProcessorNode>) currentNode().children()).get(childIndex).name()));
     }
 
-    /**
-     * @throws IllegalStateException if partition is null
-     */
+    @SuppressWarnings({"unchecked", "deprecation"})
     @Override
-    public int partition() {
-        if (recordContext == null)
-            throw new IllegalStateException("This should not happen as partition() should only be called while a record is processed");
-
-        return recordContext.partition();
+    public <K, V> void forward(final K key, final V value, final String childName) {
+        forward(key, value, To.child(childName));
     }
 
-    /**
-     * @throws IllegalStateException if offset is null
-     */
+    @SuppressWarnings("unchecked")
     @Override
-    public long offset() {
-        if (recordContext == null)
-            throw new IllegalStateException("This should not happen as offset() should only be called while a record is processed");
-
-        return recordContext.offset();
-    }
-
-    /**
-     * @throws IllegalStateException if timestamp is null
-     */
-    @Override
-    public long timestamp() {
-        if (recordContext == null)
-            throw new IllegalStateException("This should not happen as timestamp() should only be called while a record is processed");
-
-        return recordContext.timestamp();
-    }
-
-    @Override
-    public <K, V> void forward(K key, V value) {
-        ProcessorNode previousNode = currentNode;
+    public <K, V> void forward(final K key, final V value, final To to) {
+        toInternal.update(to);
+        if (toInternal.hasTimestamp()) {
+            recordContext.setTimestamp(toInternal.timestamp());
+        }
+        final ProcessorNode previousNode = currentNode();
         try {
-            for (ProcessorNode child : (List<ProcessorNode>) currentNode.children()) {
-                currentNode = child;
-                child.process(key, value);
-            }
-        } finally {
-            currentNode = previousNode;
-        }
-    }
-
-    @Override
-    public <K, V> void forward(K key, V value, int childIndex) {
-        ProcessorNode previousNode = currentNode;
-        final ProcessorNode child = (ProcessorNode<K, V>) currentNode.children().get(childIndex);
-        currentNode = child;
-        try {
-            child.process(key, value);
-        } finally {
-            currentNode = previousNode;
-        }
-    }
-
-    @Override
-    public <K, V> void forward(K key, V value, String childName) {
-        for (ProcessorNode child : (List<ProcessorNode<K, V>>) currentNode.children()) {
-            if (child.name().equals(childName)) {
-                ProcessorNode previousNode = currentNode;
-                currentNode = child;
-                try {
-                    child.process(key, value);
-                    return;
-                } finally {
-                    currentNode = previousNode;
+            final List<ProcessorNode<K, V>> children = (List<ProcessorNode<K, V>>) currentNode().children();
+            final String sendTo = toInternal.child();
+            if (sendTo != null) {
+                final ProcessorNode child = currentNode().getChild(sendTo);
+                if (child == null) {
+                    throw new StreamsException("Unknown processor name: " + sendTo);
+                }
+                forward(child, key, value);
+            } else {
+                if (children.size() == 1) {
+                    final ProcessorNode child = children.get(0);
+                    forward(child, key, value);
+                } else {
+                    for (final ProcessorNode child : children) {
+                        forward(child, key, value);
+                    }
                 }
             }
+        } finally {
+            setCurrentNode(previousNode);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private <K, V> void forward(final ProcessorNode child,
+                                final K key,
+                                final V value) {
+        setCurrentNode(child);
+        child.process(key, value);
     }
 
     @Override
@@ -238,37 +148,8 @@ public class ProcessorContextImpl implements InternalProcessorContext, RecordCol
     }
 
     @Override
-    public void schedule(long interval) {
-        task.schedule(interval);
+    public Cancellable schedule(final long interval, final PunctuationType type, final Punctuator callback) {
+        return task.schedule(interval, type, callback);
     }
 
-    @Override
-    public Map<String, Object> appConfigs() {
-        return config.originals();
-    }
-
-    @Override
-    public Map<String, Object> appConfigsWithPrefix(String prefix) {
-        return config.originalsWithPrefix(prefix);
-    }
-
-    @Override
-    public void setRecordContext(final RecordContext recordContext) {
-        this.recordContext = recordContext;
-    }
-
-    @Override
-    public RecordContext recordContext() {
-        return this.recordContext;
-    }
-
-    @Override
-    public void setCurrentNode(final ProcessorNode currentNode) {
-        this.currentNode = currentNode;
-    }
-
-    @Override
-    public ProcessorNode currentNode() {
-        return currentNode;
-    }
 }

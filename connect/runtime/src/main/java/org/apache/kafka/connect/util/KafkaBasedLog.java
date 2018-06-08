@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -13,8 +13,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- **/
-
+ */
 package org.apache.kafka.connect.util;
 
 import org.apache.kafka.clients.consumer.Consumer;
@@ -82,6 +81,7 @@ public class KafkaBasedLog<K, V> {
     private Thread thread;
     private boolean stopRequested;
     private Queue<Callback<Void>> readLogEndOffsetCallbacks;
+    private Runnable initializer;
 
     /**
      * Create a new KafkaBasedLog object. This does not start reading the log and writing is not permitted until
@@ -98,12 +98,14 @@ public class KafkaBasedLog<K, V> {
      *                        behavior of this class.
      * @param consumedCallback callback to invoke for each {@link ConsumerRecord} consumed when tailing the log
      * @param time Time interface
+     * @param initializer the component that should be run when this log is {@link #start() started}; may be null
      */
     public KafkaBasedLog(String topic,
                          Map<String, Object> producerConfigs,
                          Map<String, Object> consumerConfigs,
                          Callback<ConsumerRecord<K, V>> consumedCallback,
-                         Time time) {
+                         Time time,
+                         Runnable initializer) {
         this.topic = topic;
         this.producerConfigs = producerConfigs;
         this.consumerConfigs = consumerConfigs;
@@ -111,18 +113,23 @@ public class KafkaBasedLog<K, V> {
         this.stopRequested = false;
         this.readLogEndOffsetCallbacks = new ArrayDeque<>();
         this.time = time;
+        this.initializer = initializer != null ? initializer : new Runnable() {
+            @Override
+            public void run() {
+            }
+        };
     }
 
     public void start() {
         log.info("Starting KafkaBasedLog with topic " + topic);
 
+        initializer.run();
         producer = createProducer();
         consumer = createConsumer();
 
         List<TopicPartition> partitions = new ArrayList<>();
 
-        // Until we have admin utilities we can use to check for the existence of this topic and create it if it is missing,
-        // we rely on topic auto-creation
+        // We expect that the topics will have been created either manually by the user or automatically by the herder
         List<PartitionInfo> partitionInfos = null;
         long started = time.milliseconds();
         while (partitionInfos == null && time.milliseconds() - started < CREATE_TOPIC_TIMEOUT_MS) {
@@ -265,15 +272,15 @@ public class KafkaBasedLog<K, V> {
         log.trace("Reading to end of log offsets {}", endOffsets);
 
         while (!endOffsets.isEmpty()) {
-            poll(Integer.MAX_VALUE);
-
             Iterator<Map.Entry<TopicPartition, Long>> it = endOffsets.entrySet().iterator();
             while (it.hasNext()) {
                 Map.Entry<TopicPartition, Long> entry = it.next();
                 if (consumer.position(entry.getKey()) >= entry.getValue())
                     it.remove();
-                else
+                else {
+                    poll(Integer.MAX_VALUE);
                     break;
+                }
             }
         }
     }
@@ -287,6 +294,7 @@ public class KafkaBasedLog<K, V> {
         @Override
         public void run() {
             try {
+                log.trace("{} started execution", this);
                 while (true) {
                     int numCallbacks;
                     synchronized (KafkaBasedLog.this) {
@@ -308,7 +316,7 @@ public class KafkaBasedLog<K, V> {
 
                     synchronized (KafkaBasedLog.this) {
                         // Only invoke exactly the number of callbacks we found before triggering the read to log end
-                        // since it is possible for another write + readToEnd to sneak in in the meantime
+                        // since it is possible for another write + readToEnd to sneak in the meantime
                         for (int i = 0; i < numCallbacks; i++) {
                             Callback<Void> cb = readLogEndOffsetCallbacks.poll();
                             cb.onCompletion(null, null);
@@ -323,7 +331,7 @@ public class KafkaBasedLog<K, V> {
                     }
                 }
             } catch (Throwable t) {
-                log.error("Unexpected exception in KafkaBasedLog's work thread", t);
+                log.error("Unexpected exception in {}", this, t);
             }
         }
     }

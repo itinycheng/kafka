@@ -16,47 +16,54 @@
  */
 package kafka.client
 
-import org.apache.kafka.common.protocol.{Errors, SecurityProtocol}
+import org.apache.kafka.common.protocol.Errors
 
 import scala.collection._
 import kafka.cluster._
 import kafka.api._
-import kafka.producer._
-import kafka.common.KafkaException
+import kafka.common.{BrokerEndPointNotAvailableException, KafkaException}
 import kafka.utils.{CoreUtils, Logging}
-import java.util.Properties
+
 import util.Random
 import kafka.network.BlockingChannel
 import kafka.utils.ZkUtils
 import java.io.IOException
 
+import kafka.consumer.SimpleConsumer
+import org.apache.kafka.common.security.auth.SecurityProtocol
+
  /**
  * Helper functions common to clients (producer, consumer, or admin)
  */
-object ClientUtils extends Logging{
+@deprecated("This class has been deprecated and will be removed in a future release.", "0.11.0.0")
+object ClientUtils extends Logging {
 
-  /**
-   * Used by the producer to send a metadata request since it has access to the ProducerConfig
+   /**
+   * Send a metadata request
    * @param topics The topics for which the metadata needs to be fetched
-   * @param brokers The brokers in the cluster as configured on the producer through metadata.broker.list
-   * @param producerConfig The producer's config
+   * @param brokers The brokers in the cluster as configured on the client
+   * @param clientId The client's identifier
    * @return topic metadata response
    */
-  @deprecated("This method has been deprecated and will be removed in a future release.", "0.10.0.0")
-  def fetchTopicMetadata(topics: Set[String], brokers: Seq[BrokerEndPoint], producerConfig: ProducerConfig, correlationId: Int): TopicMetadataResponse = {
+  def fetchTopicMetadata(topics: Set[String], brokers: Seq[BrokerEndPoint], clientId: String, timeoutMs: Int,
+                                 correlationId: Int = 0): TopicMetadataResponse = {
     var fetchMetaDataSucceeded: Boolean = false
     var i: Int = 0
-    val topicMetadataRequest = new TopicMetadataRequest(TopicMetadataRequest.CurrentVersion, correlationId, producerConfig.clientId, topics.toSeq)
+    val topicMetadataRequest = new TopicMetadataRequest(TopicMetadataRequest.CurrentVersion, correlationId, clientId,
+      topics.toSeq)
     var topicMetadataResponse: TopicMetadataResponse = null
     var t: Throwable = null
     // shuffle the list of brokers before sending metadata requests so that most requests don't get routed to the
     // same broker
     val shuffledBrokers = Random.shuffle(brokers)
     while(i < shuffledBrokers.size && !fetchMetaDataSucceeded) {
-      val producer: SyncProducer = ProducerPool.createSyncProducer(producerConfig, shuffledBrokers(i))
-      info("Fetching metadata from broker %s with correlation id %d for %d topic(s) %s".format(shuffledBrokers(i), correlationId, topics.size, topics))
+      val broker = shuffledBrokers(i)
+      val consumer = new SimpleConsumer(broker.host, broker.port, timeoutMs, BlockingChannel.UseDefaultBufferSize,
+        clientId)
+      info("Fetching metadata from broker %s with correlation id %d for %d topic(s) %s".format(shuffledBrokers(i),
+        correlationId, topics.size, topics))
       try {
-        topicMetadataResponse = producer.send(topicMetadataRequest)
+        topicMetadataResponse = consumer.send(topicMetadataRequest)
         fetchMetaDataSucceeded = true
       }
       catch {
@@ -66,32 +73,15 @@ object ClientUtils extends Logging{
           t = e
       } finally {
         i = i + 1
-        producer.close()
+        consumer.close()
       }
     }
-    if(!fetchMetaDataSucceeded) {
+    if (!fetchMetaDataSucceeded) {
       throw new KafkaException("fetching topic metadata for topics [%s] from broker [%s] failed".format(topics, shuffledBrokers), t)
     } else {
       debug("Successfully fetched metadata for %d topic(s) %s".format(topics.size, topics))
     }
     topicMetadataResponse
-  }
-
-  /**
-   * Used by a non-producer client to send a metadata request
-   * @param topics The topics for which the metadata needs to be fetched
-   * @param brokers The brokers in the cluster as configured on the client
-   * @param clientId The client's identifier
-   * @return topic metadata response
-   */
-  def fetchTopicMetadata(topics: Set[String], brokers: Seq[BrokerEndPoint], clientId: String, timeoutMs: Int,
-                         correlationId: Int = 0): TopicMetadataResponse = {
-    val props = new Properties()
-    props.put("metadata.broker.list", brokers.map(_.connectionString).mkString(","))
-    props.put("client.id", clientId)
-    props.put("request.timeout.ms", timeoutMs.toString)
-    val producerConfig = new ProducerConfig(props)
-    fetchTopicMetadata(topics, brokers, producerConfig, correlationId)
   }
 
   /**
@@ -105,34 +95,46 @@ object ClientUtils extends Logging{
     }
   }
 
-   /**
-    * Creates a blocking channel to a random broker
-    */
-   def channelToAnyBroker(zkUtils: ZkUtils, socketTimeoutMs: Int = 3000) : BlockingChannel = {
-     var channel: BlockingChannel = null
-     var connected = false
-     while (!connected) {
-       val allBrokers = zkUtils.getAllBrokerEndPointsForChannel(SecurityProtocol.PLAINTEXT)
-       Random.shuffle(allBrokers).find { broker =>
-         trace("Connecting to broker %s:%d.".format(broker.host, broker.port))
-         try {
-           channel = new BlockingChannel(broker.host, broker.port, BlockingChannel.UseDefaultBufferSize, BlockingChannel.UseDefaultBufferSize, socketTimeoutMs)
-           channel.connect()
-           debug("Created channel to broker %s:%d.".format(channel.host, channel.port))
-           true
-         } catch {
-           case _: Exception =>
-             if (channel != null) channel.disconnect()
-             channel = null
-             info("Error while creating channel to %s:%d.".format(broker.host, broker.port))
-             false
-         }
-       }
-       connected = channel != null
-     }
+  /**
+   * Creates a blocking channel to a random broker
+   */
+  def channelToAnyBroker(zkUtils: ZkUtils, socketTimeoutMs: Int = 3000) : BlockingChannel = {
+    var channel: BlockingChannel = null
+    var connected = false
+    while (!connected) {
+      val allBrokers = getPlaintextBrokerEndPoints(zkUtils)
+      Random.shuffle(allBrokers).find { broker =>
+        trace("Connecting to broker %s:%d.".format(broker.host, broker.port))
+        try {
+          channel = new BlockingChannel(broker.host, broker.port, BlockingChannel.UseDefaultBufferSize, BlockingChannel.UseDefaultBufferSize, socketTimeoutMs)
+          channel.connect()
+          debug("Created channel to broker %s:%d.".format(channel.host, channel.port))
+          true
+        } catch {
+          case _: Exception =>
+            if (channel != null) channel.disconnect()
+            channel = null
+            info("Error while creating channel to %s:%d.".format(broker.host, broker.port))
+            false
+        }
+      }
+      connected = channel != null
+    }
 
-     channel
-   }
+    channel
+  }
+
+   /**
+    * Returns the first end point from each broker with the PLAINTEXT security protocol.
+    */
+  def getPlaintextBrokerEndPoints(zkUtils: ZkUtils): Seq[BrokerEndPoint] = {
+    zkUtils.getAllBrokersInCluster().map { broker =>
+      broker.endPoints.collectFirst {
+        case endPoint if endPoint.securityProtocol == SecurityProtocol.PLAINTEXT =>
+          new BrokerEndPoint(broker.id, endPoint.host, endPoint.port)
+      }.getOrElse(throw new BrokerEndPointNotAvailableException(s"End point with security protocol PLAINTEXT not found for broker ${broker.id}"))
+    }
+  }
 
    /**
     * Creates a blocking channel to the offset manager of the given group
@@ -155,7 +157,7 @@ object ClientUtils extends Logging{
            val response = queryChannel.receive()
            val consumerMetadataResponse =  GroupCoordinatorResponse.readFrom(response.payload())
            debug("Consumer metadata response: " + consumerMetadataResponse.toString)
-           if (consumerMetadataResponse.errorCode == Errors.NONE.code)
+           if (consumerMetadataResponse.error == Errors.NONE)
              coordinatorOpt = consumerMetadataResponse.coordinatorOpt
            else {
              debug("Query to %s:%d to locate offset manager for %s failed - will retry in %d milliseconds."
