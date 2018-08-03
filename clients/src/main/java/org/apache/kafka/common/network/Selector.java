@@ -326,6 +326,7 @@ public class Selector implements Selectable, AutoCloseable {
      * @param send The request to send
      */
     public void send(Send send) {
+        // NOTE - TINY: one-to-one relationship[nodeId -> destination -> <connectionId, KafkaChannel>]
         String connectionId = send.destination();
         KafkaChannel channel = openOrClosingChannelOrFail(connectionId);
         if (closingChannels.containsKey(connectionId)) {
@@ -453,6 +454,7 @@ public class Selector implements Selectable, AutoCloseable {
     void pollSelectionKeys(Set<SelectionKey> selectionKeys,
                            boolean isImmediatelyConnected,
                            long currentTimeNanos) {
+        // NOTE - TINY: socket action, send 'send'
         for (SelectionKey key : determineHandlingOrder(selectionKeys)) {
             KafkaChannel channel = channel(key);
             long channelStartTimeNanos = recordTimePerConnection ? time.nanoseconds() : 0;

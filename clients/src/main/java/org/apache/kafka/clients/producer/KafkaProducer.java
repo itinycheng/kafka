@@ -572,6 +572,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     /**
      * Should be called before the start of each new transaction. Note that prior to the first invocation
      * of this method, you must invoke {@link #initTransactions()} exactly one time.
+     * 翻译：在第一次调用该方法之前，必须调用initTransactions有且只有一次
      *
      * @throws IllegalStateException if no transactional.id has been configured or if {@link #initTransactions()}
      *         has not yet been invoked

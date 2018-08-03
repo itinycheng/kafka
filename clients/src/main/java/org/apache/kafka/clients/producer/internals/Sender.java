@@ -212,6 +212,7 @@ public class Sender implements Runnable {
                     transactionManager.transitionToFatalError(new KafkaException("The client hasn't received acknowledgment for " +
                             "some previously sent messages and can no longer retry them. It isn't safe to continue."));
                 } else if (transactionManager.hasInFlightTransactionalRequest() || maybeSendTransactionalRequest(now)) {
+                    // NOTE - TINY: maybeSendTransactionalRequest send FindCoordinatorRequest
                     // as long as there are outstanding transactional requests, we simply wait for them to return
                     client.poll(retryBackoffMs, now);
                     return;
@@ -423,6 +424,7 @@ public class Sender implements Runnable {
             try {
                 Node node = awaitLeastLoadedNodeReady(requestTimeout);
                 if (node != null) {
+                    // NOTE - TINY: init producerId and cache it to transactionManager;
                     ClientResponse response = sendAndAwaitInitProducerIdRequest(node);
                     InitProducerIdResponse initProducerIdResponse = (InitProducerIdResponse) response.responseBody();
                     Errors error = initProducerIdResponse.error();
